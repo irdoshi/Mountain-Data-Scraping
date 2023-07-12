@@ -1,0 +1,170 @@
+---
+title: "Mountain-data-scraping"
+author: "Isha Doshi"
+date: "2022-10-28"
+output:
+  word_document: default
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+**Parsing the list of mountains from Wikipedia**
+
+**Loaded the Wikipedia list of mountains by height**
+```{r}
+library(rvest)
+library(tidyverse)
+page = read_html("https://en.wikipedia.org/wiki/List_of_mountains_by_elevation")
+page
+```
+
+**Found all the tables there in the html - 9 tables**
+
+```{r}
+page %>%
+  html_nodes("table") 
+```
+
+
+**Found the table headers, and determined which columns are mountain names, heights, and where are the links to the individual mountain pages.**
+
+```{r}
+page %>%
+  html_nodes("table") %>%
+  html_elements("th") 
+
+page %>%
+  html_nodes("table") %>%
+  html_elements("td")
+
+# by comparing th and td we can see that column "Mountain" has mountain name, "Metres" and "Feet" have heights and links to the mountain pages are present in "Mountain" column.
+```
+
+**Created a data frame that contains names and heights of the mountains above 6800m, and the links to the corresponding Wikipedia pages.**
+
+```{r}
+library(dplyr)
+library(rvest)
+library(tidyverse)
+library (plyr)
+library(xml2)
+tbls_ls <- page %>%
+        html_nodes("table") %>%
+        .[1:3] %>%
+        html_table(fill = TRUE) 
+mountainsDf=bind_rows(tbls_ls)
+
+links= page%>%
+  html_nodes("table") %>%
+  html_nodes("tr") %>%
+  html_nodes(xpath="//td[1]//a[1]") %>%
+  html_attr("href")%>%
+  head(175)
+
+mountainsDf$Metres <- as.numeric(gsub(",","",mountainsDf$Metres))
+mountainsDf <- mountainsDf[mountainsDf$Metres>6800,]
+final=cbind(mountainsDf,links)
+finalDf=final%>%select(Mountain,Metres,Feet, links)
+
+head(finalDf,5)
+nrow(finalDf)
+```
+
+**Printing a small sample of my data frame to see that it looks reasonable.**
+
+```{r}
+head(finalDf,5)
+```
+
+
+**Wrote a function that converts the longitude/latitude string to degrees (positive and negative).**
+
+```{r}
+
+longitudeAndLatitude <- function(ddmmssDD)
+{
+D <- if(grepl("[WS]", ddmmssDD)) -1 else 1
+dms <- strsplit(ddmmssDD, "°|'|″|′|N|E")
+if(length(dms[[1]])==4){
+dd=as.numeric(dms[[1]][1])
+mm=as.numeric(dms[[1]][2])
+ss=as.numeric(dms[[1]][3])
+return((dd + mm/60 + ss/3600) *D)
+}
+else {
+dd=as.numeric(dms[[1]][1])
+mm=as.numeric(dms[[1]][2])
+return((dd + mm/60) *D)
+}
+}
+ans=longitudeAndLatitude("76°38′E")
+ans
+```
+
+**Wrote another function that takes link as an argument and loads the mountain’s html page and extracts latitude and longitude.**
+
+```{r}
+getlatlong=function(link){
+  
+  url=paste("https://en.wikipedia.org",link, sep = "")
+  page=try(read_html(url),silent=TRUE)
+  if (inherits (page, "try-error"))
+  return (NULL)
+  
+  latitude=page%>%
+  html_element(xpath="//span[@class='latitude']")%>%
+  html_text()
+  
+  longitude=page%>%
+  html_element(xpath="//span[@class='longitude']")%>%
+  html_text()
+  return(c(latitude,longitude))
+}
+
+```
+
+**Looped over the table of mountains I made above, downloaded the mountain data, and extracted the coordinates. Stored these into the same data frame.**
+```{r}
+ latitudes=c();
+ longitudes=c();
+for(i in finalDf$links)
+{
+  ll=getlatlong(i)
+   latitudes<-append(latitudes,(longitudeAndLatitude(ll[1])))
+   longitudes<-append(longitudes,(longitudeAndLatitude(ll[2])))
+}
+finalDf$Latitudes<-latitudes
+finalDf$Longitudes<-longitudes
+finalDf
+```
+
+**Printing a sample of the dataframe and check that it looks good.**
+
+```{r}
+head(finalDf,10)
+nrow(finalDf)
+```
+
+
+**Plotting all the mountains on a world map. Colored them according to their height.**
+
+```{r}
+data <- data.frame (finalDf$Mountain, longitude=finalDf$Longitudes,
+latitude=finalDf$Latitudes)
+
+library (ggplot2)
+
+world <- map_data("world")
+MountainsMap<-ggplot (world) +
+geom_polygon(aes (long, lat, group=group),
+col="white", fill="gray") + geom_point (data=data, aes (longitude, latitude, colour=finalDf$Metres)) +
+coord_quickmap ()
+MountainsMap + scale_color_gradient(low = "blue", high = "red")
+```
+
+**Most of the tallest mountains are located near India, Nepal, Tibet, Bhutan, Pakistan and China. There are two near Argentina and Chile.**
