@@ -1,0 +1,213 @@
+---
+title: "Assignment 3"
+author: "Isha Doshi"
+date: "2022-10-28"
+output:
+  word_document: default
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## 1.1 Ethical issues (15pt)
+
+Before you start loading web pages, let’s first think a bit about ethics.
+**1.Consult wikipedia terms of usage. Does it put restrictions on web scraping? **
+
+Answer: All Wikipedia text is available under the Creative Commons Attribution-ShareAlike License (CC-BY-SA). So long as any reuse follows the terms of that license, that reuse is also legal. Web scraping is legal on Wikipedia. It is pretty lenient when it comes to web scraping.
+
+**2. Consult robots.txt. Is it permitted to scrape wiki-pages?**
+
+Answer: robots.txt file mentions that there are a lot of pages on their site, and there are
+some misbehaved spiders out there that go way too fast. If you're irresponsible, your access to the site may be blocked. Friendly, low-speed bots are welcome viewing article pages, but not dynamically-generated pages please. The robots.txt mentions a few bots which are not allowed under User-agent: and Disallow:/. It is permitted to scrape wiki-pages though.
+
+**3. Describe what do you do in order to reduce the burden to wikipedia website.**
+1. read the robots.txt file to understand what is allowed.
+2. Make Scraping slower, keep Random Intervals in between. Scrape data at a reasonable rate and throttle/control the number of requests per second. The website owner must not think it is a DDoS attack.
+4. Only save the data we need
+5. Read only if you need new data
+6. Donate money to Wikipedia
+7. Use only a few mountains (e.g, only >8000m ones) for testing, and extend this to 6800m when the testing sample works.
+
+## 1.2 Parse the list of mountains 
+
+**1. Load the Wikipedia list of mountains by height**
+```{r}
+library(rvest)
+library(tidyverse)
+page = read_html("https://en.wikipedia.org/wiki/List_of_mountains_by_elevation")
+page
+```
+
+**2. Find all the tables there in the html.**
+
+Answer: There are 9 tables in the html.
+```{r}
+page %>%
+  html_nodes("table") 
+```
+
+
+**3. Find the table headers, and determine which columns are mountain names, heights, and where are the links to the individual mountain pages.**
+
+Answer: The column "Mountain" contains the mountain names. The columns "Metres" and "Feet" both contain the height in units of meter and feet. Individual links to the mountain pages is present in "Mountain" column. 
+
+```{r}
+page %>%
+  html_nodes("table") %>%
+  html_elements("th") 
+
+page %>%
+  html_nodes("table") %>%
+  html_elements("td")
+
+# by comparing th and td we can see that column "Mountain" has mountain name, "Metres" and "Feet" have heights and links to the mountain pages are present in "Mountain" column.
+```
+
+**4.Create a data frame that contains names and heights of the mountains above 6800m, and the links to the corresponding Wikipedia pages. You’ll add longitude and latitude for each mountain in this data frame later.**
+
+```{r}
+library(dplyr)
+library(rvest)
+library(tidyverse)
+library (plyr)
+library(xml2)
+tbls_ls <- page %>%
+        html_nodes("table") %>%
+        .[1:3] %>%
+        html_table(fill = TRUE) 
+mountainsDf=bind_rows(tbls_ls)
+
+links= page%>%
+  html_nodes("table") %>%
+  html_nodes("tr") %>%
+  html_nodes(xpath="//td[1]//a[1]") %>%
+  html_attr("href")%>%
+  head(175)
+
+mountainsDf$Metres <- as.numeric(gsub(",","",mountainsDf$Metres))
+mountainsDf <- mountainsDf[mountainsDf$Metres>6800,]
+final=cbind(mountainsDf,links)
+finalDf=final%>%select(Mountain,Metres,Feet, links)
+
+head(finalDf,5)
+nrow(finalDf)
+```
+
+**5.Print a small sample of your data frame to see that it looks reasonable.**
+
+Answer: 
+
+```{r}
+head(finalDf,5)
+```
+
+1.3 Scrape the individual mountain data
+
+**1.Write a function that converts the longitude/latitude string to degrees (positive and negative).**
+
+```{r}
+
+longitudeAndLatitude <- function(ddmmssDD)
+{
+D <- if(grepl("[WS]", ddmmssDD)) -1 else 1
+dms <- strsplit(ddmmssDD, "°|'|″|′|N|E")
+if(length(dms[[1]])==4){
+dd=as.numeric(dms[[1]][1])
+mm=as.numeric(dms[[1]][2])
+ss=as.numeric(dms[[1]][3])
+return((dd + mm/60 + ss/3600) *D)
+}
+else {
+dd=as.numeric(dms[[1]][1])
+mm=as.numeric(dms[[1]][2])
+return((dd + mm/60) *D)
+}
+}
+ans=longitudeAndLatitude("76°38′E")
+ans
+```
+
+**2. Write another function that takes link as an argument and loads the mountain’s html page and extracts latitude and longitude.**
+
+```{r}
+getlatlong=function(link){
+  
+  url=paste("https://en.wikipedia.org",link, sep = "")
+  page=try(read_html(url),silent=TRUE)
+  if (inherits (page, "try-error"))
+  return (NULL)
+  
+  latitude=page%>%
+  html_element(xpath="//span[@class='latitude']")%>%
+  html_text()
+  
+  longitude=page%>%
+  html_element(xpath="//span[@class='longitude']")%>%
+  html_text()
+  return(c(latitude,longitude))
+}
+
+for(i in finalDf$links)
+{
+  print(i)
+  ll=getlatlong(i)
+  print(ll)
+  for(j in ll){
+    print(longitudeAndLatitude(j))
+  }
+}
+
+```
+
+**3.loop over the table of mountains you did above, download the mountain data, and extract the coordinates. Store these into the same data frame.**
+```{r}
+ latitudes=c();
+ longitudes=c();
+for(i in finalDf$links)
+{
+  ll=getlatlong(i)
+   latitudes<-append(latitudes,(longitudeAndLatitude(ll[1])))
+   longitudes<-append(longitudes,(longitudeAndLatitude(ll[2])))
+}
+finalDf$Latitudes<-latitudes
+finalDf$Longitudes<-longitudes
+finalDf
+```
+
+**4.Print a sample of the dataframe and check that it looks good. How many mountains did you get?**
+
+Answer:There are 175 mountains in the final dataframe.
+```{r}
+head(finalDf,10)
+nrow(finalDf)
+```
+
+1.4 Plot the mountains
+**1. Plot all the mountains on a world map. Color those according to their height.**
+
+```{r}
+data <- data.frame (finalDf$Mountain, longitude=finalDf$Longitudes,
+latitude=finalDf$Latitudes)
+
+library (ggplot2)
+
+world <- map_data("world")
+MountainsMap<-ggplot (world) +
+geom_polygon(aes (long, lat, group=group),
+col="white", fill="gray") + geom_point (data=data, aes (longitude, latitude, colour=finalDf$Metres)) +
+coord_quickmap ()
+MountainsMap + scale_color_gradient(low = "blue", high = "red")
+```
+
+**2.Describe what did you get. Where are the tall mountains located? Do all the locations make sense (i.e. you do not have mountains in the middle of sea and such)?**
+
+Answer: Most of the tallest mountains are located near India, Nepal, Tibet, Bhutan, Pakistan and China. There are two near Argetina and Chile. Yes, all the locations make sense. 
+
+How many hours did you spend on this problem set?
+I spent about 8 to 9 hours on this assignment.
+
+Collaborators: Abhishek Kulkarni and Siddharth Purohit
