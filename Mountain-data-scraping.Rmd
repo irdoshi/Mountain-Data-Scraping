@@ -154,17 +154,31 @@ nrow(finalDf)
 **Plotting all the mountains on a world map. Colored them according to their height.**
 
 ```{r}
-data <- data.frame (finalDf$Mountain, longitude=finalDf$Longitudes,
-latitude=finalDf$Latitudes)
+library(ggplot2)
 
-library (ggplot2)
+# Create a data frame with mountain data and coordinates
+data <- data.frame(
+  Mountain = finalDf$Mountain,
+  longitude = finalDf$Longitudes,
+  latitude = finalDf$Latitudes,
+  height = finalDf$Metres
+)
 
+# Remove rows with missing values
+data <- na.omit(data)
+
+# Load world map data
 world <- map_data("world")
-MountainsMap<-ggplot (world) +
-geom_polygon(aes (long, lat, group=group),
-col="white", fill="gray") + geom_point (data=data, aes (longitude, latitude, colour=finalDf$Metres)) +
-coord_quickmap ()
-MountainsMap + scale_color_gradient(low = "blue", high = "red")
+
+# Plot the world map with mountains
+MountainsMap <- ggplot(world) +
+  geom_polygon(aes(long, lat, group = group), col = "white", fill = "gray") +
+  geom_point(data = data, aes(longitude, latitude, colour = height)) +
+  coord_quickmap() +
+  scale_color_gradient(low = "blue", high = "red")
+
+MountainsMap
+
 ```
 
 **Most of the tallest mountains are located near India, Nepal, Tibet, Bhutan, Pakistan and China. There are two near Argentina and Chile.**
